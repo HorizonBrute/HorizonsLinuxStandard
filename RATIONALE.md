@@ -20,7 +20,7 @@ produced it: what it defends against, what was tried or rejected, the caveats th
 and how to undo it.
 
 This document describes the **standard**. Any host will deviate from it somewhere; those deviations
-belong in that host's own record at `/root/<hostname>/`, never here.
+belong in that host's own record at `/root/<hostname>_security_config/`, never here.
 
 ---
 
@@ -31,15 +31,17 @@ belong in that host's own record at `/root/<hostname>/`, never here.
 human to authenticate at the moment of use. A blanket grant makes any code execution as that
 account equivalent to root, which collapses every other control in this document.
 **Rejected.** `%wheel ALL=(ALL) NOPASSWD: ALL`. It is the path of least resistance and it is what
-everyone reaches for when key-auth sudo proves awkward (C3). Resist it: the correct response to
-"key-auth sudo doesn't work from my client" is a *scoped* passwordless role, not an unscoped one.
+everyone reaches for when key-auth sudo proves awkward (C3). Resist it. "Key-auth sudo doesn't work
+from my client" is almost always a client-configuration problem with a known fix (C3 client
+requirements) — fix the client. Unattended service accounts that genuinely cannot present a key get
+a *scoped* command group (C3.6), never an unscoped grant.
 **Rollback.** Remove the role file from `/etc/sudoers.d/`; `visudo -c`.
 
 ### C1.2 — Agents get a dedicated `nologin` service account
 **Why.** Two independent boundaries: the account cannot be logged into, and the sudo grant is a
 narrow command list. Either alone is weak; together they bound what a compromised automation
 credential can reach.
-**Rejected.** Running agents as the owner. Convenient, and it silently grants the agent everything
+**Rejected.** Running agents as a human's account. Convenient, and it silently grants the agent everything
 the human has.
 **Rollback.** `userdel -r <agent>`; remove its role file.
 
@@ -77,7 +79,7 @@ once: LAN-only scope, fail2ban, faillock, a 10-day password expiry, and self-clo
 watching `authorized_keys` promotes the user on first key write (key → sudo key-store, `+wheel`,
 `-onboarding`, aging normalised), revoking the password path in about two seconds.
 **Critical scoping.** The 10-day expiry applies to onboarding accounts **only**. A global
-`PASS_MAX_DAYS=10` expires the owner and root passwords and destroys the console recovery path
+`PASS_MAX_DAYS=10` expires the administrator and root passwords and destroys the console recovery path
 (C5.3). Keep the `login.defs` default long.
 **Rejected.** Admin-installed first keys (does not scale, and the admin ends up handling other
 people's private keys); a permanent password exception (never self-closes).
@@ -109,24 +111,33 @@ ciphers, SHA-2 ETM MACs, sntrup761x25519 and curve25519 KEX. SSH is then hardene
 whatever the system policy is set to.
 **Rollback.** Remove the pinned algorithm lines; `update-crypto-policies --set DEFAULT`.
 
-### C2.6 — Agent forwarding is a deliberate choice, not a default
-**Why.** Forwarding is required if you want remote key-auth sudo (C3) — the module can only see a
-forwarded agent. It is also a real risk: a compromised host can use a connected user's forwarded
-agent for the lifetime of the session.
-**The trade.** Enable it only if C3 actually works end-to-end from your clients. If you fall back to
-scoped `NOPASSWD` roles, turn forwarding back off — you are carrying the risk for no benefit.
-Prefer a `Match Group` scope over a global enable. Keep `AllowTcpForwarding no` regardless.
+### C2.6 — Agent forwarding, scoped
+**Why.** Remote key-auth sudo (C3) cannot work without it — the module can only verify a key that
+the caller's agent presents, and a remote caller's agent is reachable only by forwarding. This is
+load-bearing, not optional.
+**The risk, stated plainly.** A compromised host can use a connected user's forwarded agent for the
+lifetime of the session. The standard accepts that in exchange for eliminating typed passwords from
+the escalation path entirely.
+**How to keep the exchange honest.** Scope it with `Match Group` to the accounts that actually
+escalate, rather than enabling it globally. Keep `AllowTcpForwarding no` regardless. If a host has
+no accounts using C3, forwarding should be off there — carrying the risk without the benefit is the
+one configuration to avoid.
 **Rollback.** `AllowAgentForwarding no`; `sshd -t`; reload.
 
 ### Operational note — multi-key agents cause self-lockouts
 An SSH agent holding several keys offers them one at a time. Against `MaxAuthTries 4` plus a
 fail2ban `maxretry` of 4, connecting to an account that has not enrolled that agent's *first* key
 burns the attempt budget and bans the source IP — locking you out of **every** account from that
-host, including working ones. This is client-side: connect with `IdentitiesOnly=yes` and an explicit
-`-i`, and use named `Host` aliases rather than a bare-IP block in `~/.ssh/config`, which otherwise
-forces one key onto every connection to that address. Exempting a source IP from throttling
-"fixes" the symptom while removing the protection — treat that as a host-specific deviation, not a
-control.
+host, including working ones.
+
+This is the single most common reason key-auth sudo (C3) gets abandoned as "broken from my client".
+It is not the module failing; it is the client offering the wrong key first. The fix is client-side
+and is part of the standard (`CONTROLS.md` C3 client requirements): `IdentitiesOnly yes` with an
+explicit `IdentityFile`, and named `Host` aliases rather than a bare-IP block.
+
+Exempting a source IP from throttling treats the symptom and removes the protection for that
+address. Fix the client instead; if an exemption is genuinely unavoidable, it is a host deviation,
+not a control.
 
 ---
 
@@ -136,6 +147,11 @@ control.
 **Why.** Separates authentication (key possession) from authorization (the `Cmnd_Alias` role
 groups). The operator proves identity with the same credential they already use for SSH, and no
 password is typed anywhere in the automation path.
+**This is the standard's escalation mechanism, not an experiment.** The key is the universal
+credential: the same ed25519 identity authenticates SSH login and sudo, for humans and for agents.
+Nothing in the automation path types a password. Where an organization cannot make this work, the
+gap is almost always client configuration (see C2.6 and the client requirements in `CONTROLS.md`),
+not the mechanism.
 **Why the fallback stays.** The password stack below the module is what prevents this from being a
 lockout. Never remove it. `%u` in the key-store path resolves to the *invoking* user at auth time,
 so per-caller files behave correctly.

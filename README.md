@@ -12,8 +12,8 @@ generated:
 
 # Secure Linux Desktop Standard — Fedora
 
-A reusable, security- and anonymity-focused hardening baseline for a single-owner Fedora
-workstation. Target: **CIS Level 1** plus enterprise controls, with the reasoning for every choice
+A security- and anonymity-focused hardening baseline for Fedora workstations — usable for a
+single machine or as an organizational baseline across a fleet. Target: **CIS Level 1** plus enterprise controls, with the reasoning for every choice
 kept alongside the change.
 
 This repository is the **standard**. It is host-neutral: no hostnames, addresses, key IDs, account
@@ -80,7 +80,7 @@ several controls can lock out remote access, and the console is the recovery pat
 Every host keeps its own configuration record, separate from this standard:
 
 ```
-/root/<hostname>/
+/root/<hostname>_security_config/
 ├── DEVIATIONS.md            # every departure from the standard, keyed to control ID
 ├── DECISIONS.md             # append-only: what changed on THIS host, why, how to roll back
 ├── audit/
@@ -91,7 +91,7 @@ Every host keeps its own configuration record, separate from this standard:
 ```
 
 ```bash
-HOSTDIR=/root/$(hostnamectl --static)
+HOSTDIR=/root/$(hostnamectl --static | tr 'A-Z' 'a-z')_security_config
 sudo install -d -m 0700 "$HOSTDIR"/{audit/baseline,audit/daily,configs-backup,exports}
 ```
 
@@ -105,7 +105,7 @@ Keeping this corpus in OKF form too — a `type: Host Record` document per chang
 ### 2. Snapshot before you change anything
 
 ```bash
-sudo bash -c 'D=/root/$(hostnamectl --static)/audit/baseline
+sudo bash -c 'D=/root/$(hostnamectl --static | tr 'A-Z' 'a-z')_security_config/audit/baseline
   sshd -T                       > "$D/sshd-T.txt"
   update-crypto-policies --show > "$D/crypto-policy.txt"
   ss -tulpn                     > "$D/listening-ports.txt"
@@ -131,7 +131,7 @@ before its recovery path exists. For each control:
 1. Back up the file you are about to change into `configs-backup/` (dated).
 2. Apply.
 3. **Validate before restart** — `sshd -t`, `visudo -c`, `nft -c -f`, as applicable.
-4. Append an entry to `/root/<hostname>/DECISIONS.md`: what, why, how, rollback.
+4. Append an entry to `/root/<hostname>_security_config/DECISIONS.md`: what, why, how, rollback.
 
 `scripts/harden.sh` implements the bulk of the CIS L1 layer and is idempotent — read it before
 running it. `scripts/netmode.sh` and `scripts/toggle_tor.sh` change live networking; see
@@ -154,19 +154,19 @@ Run the verification block at the end of [CONTROLS.md](CONTROLS.md), compare aga
 
 1. Read [index.md](index.md), then [CONTROLS.md](CONTROLS.md), [ARCHITECTURE.md](ARCHITECTURE.md),
    [RATIONALE.md](RATIONALE.md) in that order.
-2. Create and populate `/root/<hostname>/` (steps 1–2). **Do not proceed without the baseline
+2. Create and populate `/root/<hostname>_security_config/` (steps 1–2). **Do not proceed without the baseline
    snapshot.**
 3. Apply controls in the order given, one at a time, validating each before moving on.
-4. Log every change to `/root/<hostname>/DECISIONS.md` — what, why, how, rollback. No silent
+4. Log every change to `/root/<hostname>_security_config/DECISIONS.md` — what, why, how, rollback. No silent
    changes.
 5. Anything you cannot apply as written is a **deviation**. Record it in
-   `/root/<hostname>/DEVIATIONS.md` against the control ID, with the risk accepted and a review
+   `/root/<hostname>_security_config/DEVIATIONS.md` against the control ID, with the risk accepted and a review
    date — see the *Deviating from this standard* section of `CONTROLS.md`. Never weaken this
    repository to match a host.
-6. **Stop and ask the owner** before: removing a LUKS keyslot, disabling console login, changing
+6. **Stop and ask the system owner** before: removing a LUKS keyslot, disabling console login, changing
    SELinux mode, removing the last working SSH key, or anything else that could remove the recovery
    path. Elsewhere: choose the more secure option by default.
-7. Never copy anything from `/root/<hostname>/` into this repository or any other remote. Host
+7. Never copy anything from `/root/<hostname>_security_config/` into this repository or any other remote. Host
    specifics stay on the host.
 
 ---

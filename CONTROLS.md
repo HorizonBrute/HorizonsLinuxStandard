@@ -59,7 +59,7 @@ Verify: `sudo -l -U <account>` shows only the intended aliases; `getent passwd <
 | C2.3 | Pin modern algorithms explicitly — chacha20-poly1305 / AES-GCM ciphers, SHA-2 ETM MACs, curve25519 + sntrup761 KEX. |
 | C2.4 | System crypto policy stays **DEFAULT**, not FUTURE. FUTURE breaks RSA-2048 chains, most HTTPS, and `dnf`. |
 | C2.5 | Verbose SSH logging; no banner; GSSAPI off. |
-| C2.6 | `AllowTcpForwarding no`. Agent forwarding stays **off** unless key-auth sudo (C3) is verified working from your clients — then scope it with `Match Group`. |
+| C2.6 | `AllowTcpForwarding no`. Agent forwarding **on**, scoped with `Match Group` to those who escalate — remote key-auth sudo (C3) requires it. |
 | C2.7 | `X11Forwarding no`. |
 
 **Validate `sshd -t` before every restart, with a second authenticated session open.** Confirm your
@@ -77,10 +77,20 @@ Verify: `sshd -T | grep -E 'permitrootlogin|passwordauthentication|maxauthtries|
 | C3.2 | Per-caller key store at `/etc/security/sudo_authorized_keys.d/%u.pub`, root-owned. |
 | C3.3 | `SSH_AUTH_SOCK` preserved via `env_keep`. |
 | C3.4 | Build the module from GPG-verified upstream source and vendor it; the installer must degrade safely if the build fails. |
+| C3.5 | **Key-auth sudo is the escalation path for every interactive account.** No typed password in the automation path. |
+| C3.6 | Scoped `NOPASSWD` command groups are for **unattended service accounts only** — accounts with no agent to present a key. They are an authorization mechanism, never a substitute for C3.5. |
 
-Verify end-to-end from a real tty — **not** `sudo -n`, which short-circuits before PAM. If it does
-not work from your clients, use scoped `NOPASSWD` roles (C1.1) and turn agent forwarding back off
-(C2.6). Never remove the password fallback.
+**Client requirements (C3 fails without these).** The module verifies a key held by the caller's
+agent, so the client must present the *right* key:
+
+- `IdentitiesOnly yes` with an explicit `IdentityFile` per host — an agent holding several keys
+  offers them serially and will burn `MaxAuthTries` (C2.2) before reaching the right one.
+- Named `Host` aliases in `~/.ssh/config`, never a bare-IP block — a bare-IP entry forces one
+  identity onto every connection to that address, including other accounts on the same host.
+- `ForwardAgent yes` for the hosts you escalate on, and an agent actually holding the key.
+
+Verify end-to-end from a real tty — **not** `sudo -n`, which short-circuits before PAM and always
+looks like failure. Never remove the password fallback beneath the module.
 
 ---
 
@@ -117,7 +127,7 @@ Verify: compare `sysctl -a` and `lsmod` against `audit/baseline/`.
 | C6.1 | auditd baseline rules: identity changes, sudoers, sshd config, sysctl, sessions, privilege escalation. |
 | C6.2 | AIDE file-integrity database, initialised **after** hardening is complete. |
 | C6.3 | Local durable trail: state snapshot at boot and daily (60-day retention), dated log exports (30-day). |
-| C6.4 | Trail lives in the host corpus at `/root/<hostname>/`, mode `0700`, **root-owned**. `/var/log` stays root-owned and non-group-writable. |
+| C6.4 | Trail lives in the host corpus at `/root/<hostname>_security_config/`, mode `0700`, **root-owned**. `/var/log` stays root-owned and non-group-writable. |
 
 ---
 
@@ -205,7 +215,7 @@ liability when it is not — an undocumented open port is indistinguishable from
 Deviations do **not** belong in this repository. They belong in the host's own record:
 
 ```
-/root/<hostname>/DEVIATIONS.md
+/root/<hostname>_security_config/DEVIATIONS.md
 ```
 
 Record each one against the control ID it departs from:
@@ -245,5 +255,5 @@ curl -sS http://example.com || echo 'plaintext HTTP correctly rejected'
 aide --check                                # after initialisation
 ```
 
-Compare every result against `/root/<hostname>/audit/baseline/`. Record each difference in that
+Compare every result against `/root/<hostname>_security_config/audit/baseline/`. Record each difference in that
 host's `DEVIATIONS.md` or fix it.

@@ -29,8 +29,9 @@ auto-unlock and a retained passphrase keyslot, SELinux/MAC enforcing.
 
 1. **Least privilege.** No account or service gets more than it needs. No blanket
    `NOPASSWD: ALL`. Privilege is delineated by group and by command.
-2. **Key as the universal credential.** Humans and automated agents authenticate with SSH keys —
-   for login and (where applicable) for escalation. No typed passwords in the automation path.
+2. **Key as the universal credential.** Humans and automated agents authenticate with SSH keys for
+   **both login and escalation**. No typed passwords anywhere in the administrative or automation
+   path. The password stack survives beneath sudo only as an anti-lockout fallback.
 3. **Localhost-only by default.** No service listens on a non-loopback interface without a
    documented decision. Intentional exceptions: SSH (22) and mDNS (5353).
 4. **On-path/MITM resistance.** Encrypted + validated DNS, no LLMNR, no ICMP redirects / source
@@ -50,13 +51,13 @@ auto-unlock and a retained passphrase keyslot, SELinux/MAC enforcing.
 
 | Class | Login shell | SSH login | sudo |
 |-------|-------------|-----------|------|
-| Primary user | `/bin/bash` | yes (key-only) | authenticated, scoped |
+| Primary user | `/bin/bash` | yes (key-only) | key-authenticated, scoped |
 | Admin user | `/bin/bash` | yes (key-only) | `ALL` via `wheel`; key-auth sudo with password fallback |
 | Secondary admin | `/bin/bash` | yes (key-only) | as above; own keypair (C1.5) |
-| Admin role group | `/bin/bash` | yes (key-only) | passwordless **scoped** `NOPASSWD`, admin command groups only (C1.1) |
+| Admin role group | `/bin/bash` | yes (key-only) | key-authenticated, scoped admin command groups (C1.1) |
 | Onboarding user | `/bin/bash` | LAN-only password (temp, 10-day) → key after promotion | none until auto-promoted |
-| Remote-capable agent | `/bin/bash` | loopback/remote (key-only) | scoped |
-| Local service agent | `nologin` | none | NOPASSWD, narrow command whitelist |
+| Remote-capable agent | `/bin/bash` | loopback/remote (key-only) | key-authenticated, scoped |
+| Local service agent | `nologin` | none | on-box agent key, or scoped `NOPASSWD` where no agent runs (C3.6) |
 
 **Agent provisioning (standard process).** Each agent is a key-bearing identity. A reusable
 provisioner creates the account, generates an ed25519 key, self-enrols the public key (loopback
@@ -75,12 +76,20 @@ Net result is a key-only-login `wheel` account (its key also enrolled in the sud
 10-day window is scoped to onboarding accounts only; the global `useradd`/`login.defs` default stays
 365 so the operator and root recovery passwords never expire (C5.3, C1.6).
 
-**Escalation reality check.** Agent-forwarded key-auth sudo depends on the *client* forwarding an
-agent that holds the right key. Verify it end-to-end from your own clients before relying on it
-(C3). Where it is not dependable, the fallback is a **scoped** `NOPASSWD` role — a `Cmnd_Alias`
-command group plus a group grant — never a blanket grant, and agent forwarding goes back off
-(C2.6). Role groups get their command groups and nothing else: `/var/log` stays root-owned and
-non-group-writable, or the escalation trail becomes editable by the people it records (C6.4).
+**Escalation is key-authenticated. This is the core of the model.** Every interactive account
+escalates by presenting an SSH key to `pam_ssh_agent_auth` (C3.5) — the same ed25519 identity that
+authenticated the login. No password is typed anywhere in the path. Remote callers reach the module
+via a scoped forwarded agent (C2.6); local service accounts use their own on-box agent.
+
+Key-auth sudo depends on the client offering the *right* key, which is a solved problem
+(`IdentitiesOnly`, explicit `IdentityFile`, named `Host` aliases — see C3 client requirements) and
+the usual reason deployments give up on it. Fix the client rather than weakening the host.
+
+Scoped `NOPASSWD` command groups (`Cmnd_Alias` + group grant) are the **authorization** layer, and
+apply to unattended service accounts that have no agent to present a key (C3.6). They are never a
+substitute for key authentication, and a blanket grant is never acceptable. Role groups get their
+command groups and nothing else: `/var/log` stays root-owned and non-group-writable, or the
+escalation trail becomes editable by the people it records (C6.4).
 
 **sudo delineation** (`/etc/sudoers.d/`, each `visudo`-validated):
 - Command groups via `Cmnd_Alias` (package maintenance, reboot, service control, audit,
@@ -161,7 +170,7 @@ host through whatever egress backend is active (`scripts/netmode.sh`).
 60-day local trail replaces it.
 
 Any host that must differ from the above records the difference in its own register at
-`/root/<hostname>/DEVIATIONS.md`, keyed to the control ID. Deviations are never recorded here.
+`/root/<hostname>_security_config/DEVIATIONS.md`, keyed to the control ID. Deviations are never recorded here.
 
 ---
 
@@ -178,4 +187,4 @@ Any host that must differ from the above records the difference in its own regis
 
 Physical console login · disk-encryption passphrase keyslot · existing SSH key · MAC enforcing.
 Replaced configs are backed up under `configs-backup/` and `audit/baseline/` inside the host's own
-config corpus (`/root/<hostname>/`, see `README.md`) — never in this repository.
+config corpus (`/root/<hostname>_security_config/`, see `README.md`) — never in this repository.
