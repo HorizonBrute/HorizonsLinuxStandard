@@ -1,0 +1,4 @@
+7058e30d9089925630731db2face75816636b7a2be0b5b2ec7da49d575b76ace  /root/<config-dir>/vendor/pam_ssh_agent_auth/src/pam-ssh-agent-auth_0.10.3-11.debian.tar.xz
+60a6392a9223a3f6c93ed7c6daa8aa2460347eb125572b333c4113d46f03d12a  /root/<config-dir>/vendor/pam_ssh_agent_auth/src/pam-ssh-agent-auth_0.10.3-11.dsc
+3c53d358d6eaed1b211239df017c27c6f9970995d14102ae67bae16d4f47a763  /root/<config-dir>/vendor/pam_ssh_agent_auth/src/pam-ssh-agent-auth_0.10.3.orig.tar.bz2
+4256c3cb90207d0041e754afcae3cfb110d3d5486e72c3103a7b0df242874a90  /root/<config-dir>/vendor/pam_ssh_agent_auth/pam_ssh_agent_auth.so

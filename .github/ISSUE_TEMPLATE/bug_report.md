@@ -1,4 +1,5 @@
 ---
+type: Issue Template
 name: Log a Bug
 about: Report a problem with the project's documentation, structure, or behavior
 title: '[BUG] '

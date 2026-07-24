@@ -1,3 +1,11 @@
+---
+type: Playbook
+title: Contributing
+description: How to propose changes to this standard — issues first, focused signed-commit pull requests, and the ground rules.
+tags: [contributing, process, pull-request]
+status: stable
+---
+
 ## Contributing
 
 Thanks for your interest in contributing. This is an open project and input is welcome — bug reports, ideas, and pull requests all help.

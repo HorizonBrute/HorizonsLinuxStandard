@@ -1,3 +1,11 @@
+---
+type: Playbook
+title: Standing up a new repo to the public-repo standard
+description: Runbook for bringing a repo generated from the project template up to the public-repo standard — settings, topics, branch ruleset, signed commits, docs site.
+tags: [github, repo-setup, runbook, template]
+status: stable
+---
+
 # Standing up a new repo to the Horizon public-repo standard
 
 This is the end-to-end runbook for taking a repo generated from this template and

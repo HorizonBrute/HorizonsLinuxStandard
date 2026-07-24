@@ -1,0 +1,10 @@
+module secbase_onboard 1.0;
+require {
+    type init_t;
+    type ssh_home_t;
+    class file { read getattr };
+}
+# Benign: the systemd path-unit (PID1) probes authorized_keys when arming the
+# onboarding key-watch. Promotion fires via directory inotify regardless, so the
+# file read is unnecessary. Suppress the audit noise; grant nothing. See D033.
+dontaudit init_t ssh_home_t:file { read getattr };

@@ -1,4 +1,5 @@
 ---
+type: Issue Template
 name: Request a Feature
 about: Suggest a capability or improvement
 title: '[FEATURE] '

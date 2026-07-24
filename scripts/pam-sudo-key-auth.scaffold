@@ -1,0 +1,14 @@
+# Sudo-through-SSH-Key-Auth — activation scaffold (DO NOT symlink into /etc/pam.d as-is).
+# Activate ONLY after pam_ssh_agent_auth.so is installed, by adding this as the FIRST auth
+# line in /etc/pam.d/sudo (and sudo-i). Ordered "sufficient" + first, so a valid agent key
+# skips the password; a missing/!invalid key FALLS THROUGH to the normal password stack
+# (faillock-protected) — sudo never breaks even if the module is absent at runtime.
+#
+#   auth  sufficient  pam_ssh_agent_auth.so  file=/etc/security/sudo_authorized_keys.d/%u.pub
+#
+# Requirements already in place:
+#   - sudoers passes the agent socket:  Defaults env_keep += "SSH_AUTH_SOCK"   (00-secbase-aliases)
+#   - per-user pubkeys live in:          /etc/security/sudo_authorized_keys.d/<user>.pub
+#       (secbase-provision-agent installs each agent's key here automatically)
+# Caller must have the matching private key loaded in their ssh-agent with SSH_AUTH_SOCK set.
+# Validate the change on a second root shell before logging out (PAM lockout safety).

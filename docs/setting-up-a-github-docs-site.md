@@ -1,3 +1,11 @@
+---
+type: Playbook
+title: Setting up a GitHub Pages docs site
+description: The mkdocs-material docs-site pattern — built and published to a gh-pages branch by GitHub Actions on every push to the default branch.
+tags: [github-pages, mkdocs, ci, documentation]
+status: stable
+---
+
 # Setting up a GitHub Pages docs site
 
 This is the docs-site pattern for Horizon public repos: **mkdocs-material, built and
