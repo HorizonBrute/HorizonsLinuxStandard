@@ -33,8 +33,8 @@ Two audiences, one corpus:
   and apply.
 - **An AI agent** pointed at this repository and told "configure this machine to the standard."
   The agent reads [CONTROLS.md](CONTROLS.md) for what to apply, [ARCHITECTURE.md](ARCHITECTURE.md)
-  for how the pieces fit, and [DECISIONS.md](DECISIONS.md) for why — then records what it did in
-  the host's own corpus (below).
+  for how the pieces fit, and [RATIONALE.md](RATIONALE.md) for why — then records what it did,
+  and any deviation it had to make, in the host's own corpus (below).
 
 ---
 
@@ -45,7 +45,7 @@ Two audiences, one corpus:
 | [index.md](index.md) | OKF bundle index. Start here if you are an agent. |
 | [CONTROLS.md](CONTROLS.md) | **What to apply.** Ordered, prescriptive control list with verification. Start here if you are a human. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the controls compose — identity model, network exposure, DNS/Tor chain, recovery invariants. |
-| [DECISIONS.md](DECISIONS.md) | Dated rationale log. Every control's *why*, the alternatives rejected, and its rollback. |
+| [RATIONALE.md](RATIONALE.md) | Why each control is what it is — threat addressed, alternatives rejected, caveats, rollback. Keyed to the same IDs as CONTROLS.md. |
 | `scripts/` | Executable pieces: hardening, network-mode switching, transparent-Tor toggle. |
 | `vendor/` | Third-party source with verified provenance (`pam_ssh_agent_auth`) + SELinux policy. |
 
@@ -81,7 +81,7 @@ Every host keeps its own configuration record, separate from this standard:
 
 ```
 /root/<hostname>/
-├── ARCHITECTURE.md          # this host's deviations from the standard
+├── DEVIATIONS.md            # every departure from the standard, keyed to control ID
 ├── DECISIONS.md             # append-only: what changed on THIS host, why, how to roll back
 ├── audit/
 │   ├── baseline/            # pre-change state snapshot (step 2)
@@ -153,14 +153,16 @@ Run the verification block at the end of [CONTROLS.md](CONTROLS.md), compare aga
 ## For an AI agent configuring a host
 
 1. Read [index.md](index.md), then [CONTROLS.md](CONTROLS.md), [ARCHITECTURE.md](ARCHITECTURE.md),
-   [DECISIONS.md](DECISIONS.md) in that order.
+   [RATIONALE.md](RATIONALE.md) in that order.
 2. Create and populate `/root/<hostname>/` (steps 1–2). **Do not proceed without the baseline
    snapshot.**
 3. Apply controls in the order given, one at a time, validating each before moving on.
 4. Log every change to `/root/<hostname>/DECISIONS.md` — what, why, how, rollback. No silent
    changes.
-5. Read the **Anti-patterns** section of `CONTROLS.md` and do not apply those, even though they
-   appear in the decision log.
+5. Anything you cannot apply as written is a **deviation**. Record it in
+   `/root/<hostname>/DEVIATIONS.md` against the control ID, with the risk accepted and a review
+   date — see the *Deviating from this standard* section of `CONTROLS.md`. Never weaken this
+   repository to match a host.
 6. **Stop and ask the owner** before: removing a LUKS keyslot, disabling console login, changing
    SELinux mode, removing the last working SSH key, or anything else that could remove the recovery
    path. Elsewhere: choose the more secure option by default.

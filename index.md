@@ -10,7 +10,7 @@ okf_version: "0.2"
 # Reference
 
 * [ARCHITECTURE.md](ARCHITECTURE.md) - How the controls compose — identity model, network exposure, DNS and Tor chain, recovery invariants.
-* [DECISIONS.md](DECISIONS.md) - Chronological, append-only rationale log: what changed, why, the CIS deviation if any, and the rollback.
+* [RATIONALE.md](RATIONALE.md) - Why each control is what it is: threat addressed, alternatives rejected, caveats, and rollback. Keyed to the control IDs.
 
 # Executable
 
