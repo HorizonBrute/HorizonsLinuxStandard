@@ -39,9 +39,12 @@ auto-unlock and a retained passphrase keyslot, SELinux/MAC enforcing.
 5. **Encrypted egress only.** Outbound plaintext HTTP (80) and plaintext DNS (53) are rejected.
 6. **Anonymity-aware DNS.** Queries are spread across a randomized pool of no-logging encrypted
    resolvers so no single operator can profile all lookups.
-7. **Durable local audit.** No external log server assumed; a local 60-day state trail plus 30-day
-   log exports, with snapshots at boot and daily.
-8. **Reboot survivability.** Unattended daily update + reboot; every control returns after reboot.
+7. **Durable audit, shipped off-box.** Logs go to a remote syslog server over TLS wherever one
+   exists — a trail stored only on the host it audits can be rewritten by whoever compromises it.
+   A local 60-day state trail plus 30-day log exports, snapshotted at boot and daily, complements
+   that and covers hosts with no log infrastructure.
+8. **Reboot survivability.** Unattended daily update, with a scheduled reboot at least twice monthly
+   so staged firmware and microcode activate; every control returns after reboot.
 9. **Recoverability preserved.** Physical console, disk passphrase keyslot, existing SSH key, and
    MAC-enforcing are never removed.
 
@@ -115,7 +118,7 @@ authorization (the `Cmnd_Alias` role groups above).
 | Port | Service | Bind | Status |
 |------|---------|------|--------|
 | 22/tcp | SSH | all | exposed (intentional), key-only |
-| 5353/udp | mDNS | all | exposed (intentional), local discovery |
+| 5353/udp | mDNS | all | **opt-in**, off by default; local discovery only |
 | 53 | resolver stub | loopback | local only |
 | 5355 | LLMNR | — | disabled (poisoning vector) |
 | — | libvirt SPICE | local unix socket | VM console, no TCP bind |
@@ -165,9 +168,8 @@ host through whatever egress backend is active (`scripts/netmode.sh`).
 - auditd baseline rules (identity, sudoers, sshd, sysctl, sessions, privilege escalation).
 - AIDE file-integrity database.
 
-**Intentional exposures**, both required by the design rather than conceded to it: SSH on the LAN
-(key-only, fail2ban) and mDNS if local discovery is wanted. No central log server is assumed — the
-60-day local trail replaces it.
+**Intentional exposure:** SSH only (key-only, fail2ban). mDNS/5353 is opt-in and off by default —
+enable it only where local discovery is genuinely wanted.
 
 Any host that must differ from the above records the difference in its own register at
 `/root/<hostname>_security_config/DEVIATIONS.md`, keyed to the control ID. Deviations are never recorded here.
@@ -176,7 +178,8 @@ Any host that must differ from the above records the difference in its own regis
 
 ## 5. Maintenance & resilience
 
-- Daily refresh + upgrade (logged), then guarded daily reboot.
+- Daily refresh + upgrade (logged); guarded reboot at least twice monthly (default 1st and 16th) so
+  staged firmware and microcode updates activate.
 - State snapshot at every boot and daily (60-day retention); dated log exports (30-day retention).
 - All controls persist via `sysctl.d` / `sshd_config.d` / systemd units / permanent firewall
   rules, so the host returns hardened after each reboot.

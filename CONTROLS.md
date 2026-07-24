@@ -30,6 +30,11 @@ reversible without it.
 host must differ, that difference is recorded in the host's own register — see
 [Deviating from this standard](#deviating-from-this-standard).
 
+**Design stance.** Default to the most secure and most anonymous configuration that still leaves a
+working system, then let the deployer relax it deliberately. Where a choice genuinely depends on the
+deployment — server or desktop, log destination, discovery protocols — `scripts/harden.sh` asks
+rather than guessing. Everything it asks has a secure default.
+
 **Legend:** ⚠️ = can lock you out; keep a console session open.
 
 ---
@@ -43,7 +48,7 @@ host must differ, that difference is recorded in the host's own register — see
 | C1.3 | Each agent is a key-bearing identity: one ed25519 key, used for both SSH and escalation. |
 | C1.4 | Sudo: `use_pty` and a dedicated sudo log enabled. |
 | C1.5 | A second standing admin account, key-only, with its **own** keypair. |
-| C1.6 | First-key onboarding, if offered, is scoped (`Match Group … Address <lan-cidr>`), time-boxed, and self-closing on first key upload. |
+| C1.6 | First-key onboarding (opt-in) is scoped (`Match Group … Address <lan-cidr>`), time-boxed, and self-closing on first key upload. It is the bridge that gets a user to key-only; the containment is the point. |
 
 Verify: `sudo -l -U <account>` shows only the intended aliases; `getent passwd <agent>` shows
 `nologin`; `visudo -c` clean.
@@ -98,12 +103,12 @@ looks like failure. Never remove the password fallback beneath the module.
 
 | # | Control |
 |---|---|
-| C4.1 | sysctl: ASLR on, `kptr_restrict`, `dmesg_restrict`, `ptrace_scope`, `suid_dumpable=0`, protected hardlinks/symlinks/fifos/regular, restricted BPF, `perf_event_paranoid`. User namespaces left enabled (browser/flatpak sandboxes). |
+| C4.1 | sysctl: ASLR on, `kptr_restrict`, `dmesg_restrict`, `ptrace_scope`, `suid_dumpable=0`, protected hardlinks/symlinks/fifos/regular, restricted BPF, `perf_event_paranoid`. **Server profile:** `user.max_user_namespaces=0`. **Desktop profile:** user namespaces enabled — browser and flatpak sandboxes depend on them. `harden.sh --profile=` selects. |
 | C4.2 | Blacklist unused filesystems (cramfs, freevxfs, hfs, hfsplus, jffs2, squashfs, udf), rare network protocols (dccp, sctp, rds, tipc), and `usb-storage`. |
 | C4.3 | Core dumps disabled. |
 | C4.4 | `umask 027`. |
 | C4.5 | `cron`/`at` restricted to root. |
-| C4.6 | Separate `/tmp` and `/var/tmp` with `nodev,nosuid,noexec`. Do this at image build time. |
+| C4.6 | **Pre-installation requirement.** Separate `/tmp` and `/var/tmp` with `nodev,nosuid,noexec` — a partitioning decision made at OS install time. It cannot be added safely to a running host; `harden.sh` checks and warns. |
 
 Verify: compare `sysctl -a` and `lsmod` against `audit/baseline/`.
 
@@ -128,6 +133,7 @@ Verify: compare `sysctl -a` and `lsmod` against `audit/baseline/`.
 | C6.2 | AIDE file-integrity database, initialised **after** hardening is complete. |
 | C6.3 | Local durable trail: state snapshot at boot and daily (60-day retention), dated log exports (30-day). |
 | C6.4 | Trail lives in the host corpus at `/root/<hostname>_security_config/`, mode `0700`, **root-owned**. `/var/log` stays root-owned and non-group-writable. |
+| C6.5 | **Ship logs off-box** to a remote syslog server over TLS, with a disk-backed queue. The local trail complements it; it does not replace it. Evaluate against your deployment — declining is a deviation, not a default. |
 
 ---
 
@@ -149,12 +155,12 @@ Verify: `resolvectl status` shows the local stub only.
 | # | Control |
 |---|---|
 | C8.1 | Reject outbound plaintext HTTP (80/tcp) and plaintext DNS (53 udp+tcp); exempt loopback. |
-| C8.2 | Inbound: exactly SSH + mDNS. Default target deny. Log denials. |
+| C8.2 | Inbound: **SSH only**. Default target deny. Log denials. mDNS/5353 is opt-in (`--mdns`) where local discovery is actually wanted. |
 | C8.3 | Nothing binds a non-loopback interface without a written decision. **Bind published container ports to `127.0.0.1` explicitly** — runtimes default to `0.0.0.0`. |
 | C8.4 | Scoped exceptions get their own subnet-limited rule, never a global hole. Never relax browser or system TLS globally to reach one appliance. |
 
-Verify: `ss -tulpn | grep -vE '127\.0\.0\.1|::1'` returns only SSH and mDNS. Audit this regularly —
-drift here is silent.
+Verify: `ss -tulpn | grep -vE '127\.0\.0\.1|::1'` returns only SSH (plus mDNS if opted in). Audit
+this regularly — drift here is silent.
 
 ---
 
@@ -170,7 +176,7 @@ drift here is silent.
 
 ---
 
-## C10 — Outbound anonymity (optional layer) ⚠️
+## C10 — Outbound anonymity (opt-in profile) ⚠️
 
 | # | Control |
 |---|---|
@@ -181,7 +187,10 @@ drift here is silent.
 | C10.5 | Encrypted DNS rides Tor over TCP (`force_tcp`). Keep SELinux Enforcing; label the Tor port with `semanage` rather than using a permissive shim. |
 | C10.6 | **Apply behind a systemd dead-man auto-revert.** Keep only after a plain `curl` confirms a Tor exit IP *and* the SSH session is still up. Toggling off must `disable` the unit, not just stop it. |
 
-Toggle via `scripts/toggle_tor.sh`; egress backend selection via `scripts/netmode.sh`.
+Opt in with `harden.sh --enable-tor` (SOCKS only) or `--enable-tor-transparent` (system-wide).
+Toggle via `scripts/toggle_tor.sh`; egress backend selection via `scripts/netmode.sh`. Off by
+default because it is a posture choice, not because it is second-class — a deployment that wants
+anonymity should turn it on.
 
 ---
 
@@ -201,7 +210,8 @@ Toggle via `scripts/toggle_tor.sh`; egress backend selection via `scripts/netmod
 
 | # | Control |
 |---|---|
-| C12.1 | Daily unattended refresh + upgrade, logged, then a guarded reboot. |
+| C12.1 | Daily unattended refresh + upgrade, logged. |
+| C12.4 | **Scheduled reboot twice monthly minimum** (default: the 1st and 16th) so staged firmware and microcode updates actually activate. Deployers set their own cadence. |
 | C12.2 | Every control persists via `sysctl.d` / `sshd_config.d` / systemd units / permanent firewall rules. |
 | C12.3 | Verify the host returns hardened after reboot before considering any change complete. |
 
@@ -244,6 +254,7 @@ Two rules make the register worth keeping:
 
 ```bash
 sshd -T | grep -E 'permitrootlogin|passwordauthentication|maxauthtries|x11forwarding|ciphers'
+systemctl is-active rsyslog && grep -l '@@' /etc/rsyslog.d/*.conf   # C6.5 shipping off-box
 visudo -c
 sudo grep -rn 'NOPASSWD: *ALL' /etc/sudoers /etc/sudoers.d/   # expect no uncommented hits
 getenforce                                  # Enforcing

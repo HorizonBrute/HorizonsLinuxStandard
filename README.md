@@ -75,6 +75,15 @@ Fedora Workstation, UEFI + Secure Boot, LUKS full-disk encryption with a **retai
 keyslot**, SELinux Enforcing. Console access you can physically reach. Do not start without these —
 several controls can lock out remote access, and the console is the recovery path.
 
+**Decide at install time, not after.** Separate `/tmp` and `/var/tmp` partitions mounted
+`nodev,nosuid,noexec` (C4.6). This is a partitioning decision; retrofitting it onto a running host
+needs a maintenance window or a subvolume change, and in practice it gets deferred indefinitely.
+`harden.sh` checks and warns, but it cannot fix it for you.
+
+**Have an answer ready for:** where logs ship (C6.5), whether this is a server or a desktop (C4.1),
+whether local discovery is wanted (C8.2), and your reboot cadence (C12.4). `harden.sh` asks all four
+and defaults securely if you run it non-interactively.
+
 ### 1. Create the host's config corpus
 
 Every host keeps its own configuration record, separate from this standard:

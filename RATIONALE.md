@@ -22,6 +22,11 @@ and how to undo it.
 This document describes the **standard**. Any host will deviate from it somewhere; those deviations
 belong in that host's own record at `/root/<hostname>_security_config/`, never here.
 
+**Stance.** Default to the most secure and most anonymous configuration that still leaves a working
+system, then relax deliberately. A handful of choices genuinely depend on the deployment — server or
+desktop, where logs go, whether discovery protocols are wanted. For those, `harden.sh` asks. It does
+not guess, and it does not silently pick the convenient answer.
+
 ---
 
 ## C1 — Identity & privilege model
@@ -185,13 +190,18 @@ non-fatal: a build failure has to leave sudo working.
 **Why.** These remove the standard local-privilege-escalation primitives: kernel pointer and dmesg
 exposure, `ptrace` on unrelated processes, SUID core dumps, symlink/hardlink races in shared
 directories, unprivileged BPF, and perf events.
-**Deliberately left enabled.** User namespaces — browser and flatpak sandboxes depend on them, and
-disabling them trades a real, daily-used sandbox for a theoretical one.
+**User namespaces are a profile decision, not a default.** On a **desktop**, browser and flatpak
+sandboxes depend on them — disabling trades a real, daily-used sandbox for a theoretical gain. On a
+**server** there is usually nothing legitimate using them, and they are a recurring local-privesc
+primitive, so `user.max_user_namespaces=0`. `harden.sh --profile=` asks rather than assuming; there
+is no answer that is correct for both.
 **Module blacklisting.** Rare filesystems (cramfs, freevxfs, hfs, hfsplus, jffs2, squashfs, udf) and
 rare network protocols (dccp, sctp, rds, tipc). These are recurring CVE sources with no desktop use.
-**Commonly deferred.** Separate `/tmp` and `/var/tmp` with `nodev,nosuid,noexec` — correct, but it
-needs a maintenance window or a subvolume change on a live host. Do it when building an image, not
-when hardening a running one.
+**`/tmp` is a pre-installation requirement, not a hardening step.** Separate `/tmp` and `/var/tmp`
+with `nodev,nosuid,noexec` is a partitioning decision made when the OS is installed. Retrofitting it
+onto a running host means a maintenance window or a subvolume change, which is why it gets deferred
+"until later" and then never happens. Plan it at install or image-build time; `harden.sh` checks and
+warns rather than pretending it can fix it.
 **Rollback.** Remove the named `sysctl.d` and `modprobe.d` drop-ins; `sysctl --system`.
 
 ---
@@ -219,8 +229,10 @@ sshd config, sysctl, sessions, privilege escalation.
 **Ordering that matters.** Initialise AIDE **after** hardening is complete. Initialise it first and
 the database records the pre-hardened state, so every subsequent check reports your own hardening as
 tampering, and the tool gets ignored.
-**Note.** Audit rules are left mutable on a host that reboots daily; immutable (`-e 2`) is correct
-for a host that does not.
+**Immutability.** Prefer immutable audit rules (`-e 2`) — they cannot be altered without a reboot,
+which is exactly the property you want from a tamper-evidence control. The cost is that rule changes
+need a reboot; with the twice-monthly reboot cadence (C12.4) that is a non-issue. Leave rules mutable
+only where you genuinely cannot reboot.
 
 ### C6.3–C6.4 — Local durable trail, root-owned
 **Why.** With no central log server, the local trail *is* the audit evidence — a boot-time and daily
@@ -228,7 +240,16 @@ state snapshot with 60-day retention, plus dated log exports at 30 days. A snaps
 means the trail has no gaps regardless of the reboot schedule.
 **Why root-owned `0700`.** The corpus holds replaced sudoers files, the original `sshd_config`,
 gateway MACs, wifi connection names, and LAN topology. It is secret material, and if a non-root
-account can write to it, the audit evidence is no longer evidence. Granting a role group write access
+account can write to it, the audit evidence is no longer evidence.
+
+**Why the local trail is not sufficient on its own (C6.5).** It lives on the host it audits. Anyone
+who reaches root there can rewrite it, and the first thing a competent intruder does is exactly
+that. Shipping to a remote syslog server over TLS with a disk-backed queue means the record survives
+the compromise of the machine that produced it — that is the difference between logging and
+evidence. The local 60-day trail then does what it is good at: surviving a network outage and giving
+you fast local history. Whether you need off-box shipping is a real question for a lab or a
+single-user machine; answer it deliberately and record the answer, rather than inheriting "no" by
+default. Granting a role group write access
 to `/var/log` has the same effect: it lets members modify or delete any log, including the escalation
 trail. Prefer read access, or a dedicated directory.
 **Rollback.** Remove the maintenance cron entries and disable the boot-audit unit.

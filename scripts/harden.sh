@@ -20,6 +20,22 @@
 # Usage:
 #   ./harden.sh [--cloud] [--enable-tor] [--enable-tor-transparent] [--dry-run]
 #               [--skip MODULE[,MODULE...]] [--only MODULE[,MODULE...]] [--allow-no-tpm]
+#               [--profile=server|desktop] [--syslog=HOST[:PORT] | --no-syslog]
+#               [--mdns | --no-mdns] [--reboot-days=1,16] [--non-interactive]
+#
+# Deployment choices (prompted on a tty, or set by flag/env for unattended runs):
+#   --profile     server hardens user namespaces off; desktop leaves them on for
+#                 browser/flatpak sandboxes. No safe default — the script asks.
+#   --syslog      remote log server. The local trail can be rewritten by anyone who
+#                 reaches root on this host, so off-box logging is the real audit
+#                 control. Declining is a deviation — record it.
+#   --mdns        allow inbound mDNS/5353. Default OFF; the baseline exposes SSH only.
+#   --reboot-days scheduled reboot days for firmware/microcode activation.
+#                 Default 1,16 — twice monthly minimum.
+#
+# PRE-INSTALLATION REQUIREMENT: separate /tmp and /var/tmp with nodev,nosuid,noexec.
+# This is a partitioning decision made at OS install time. This script cannot add it to a
+# running system safely and will warn if it is absent.
 #
 set -euo pipefail
 
@@ -28,6 +44,16 @@ LOG_TAG="hardening"
 PRIMARY_IFACE="${PRIMARY_IFACE:-}"     # auto-detected if empty
 CLOUD=0; DRYRUN=0; ENABLE_TOR=0; ENABLE_TOR_TRANSPARENT=0; ALLOW_NO_TPM=0
 SKIP=""; ONLY=""
+# Deployment choices — prompted when interactive, overridable by flag/env for automation.
+PROFILE="${PROFILE:-}"                 # server | desktop
+SYSLOG_SERVER="${SYSLOG_SERVER:-}"     # host[:port] for remote log shipping; empty = local trail only
+ENABLE_MDNS="${ENABLE_MDNS:-}"         # 1 = allow inbound mDNS/5353
+REBOOT_DAYS="${REBOOT_DAYS:-1,16}"     # monthly reboot days for firmware/microcode activation
+NONINTERACTIVE="${NONINTERACTIVE:-0}"
+
+# Per-host configuration corpus (see CONTROLS.md C6.4). Root-owned 0700.
+_hn="$(hostnamectl --static 2>/dev/null || hostname 2>/dev/null || echo host)"
+CORPUS="/root/$(printf '%s' "$_hn" | tr 'A-Z' 'a-z')_security_config"
 
 # ----------------------------------------------------------------------------- helpers
 say(){ printf '\033[1;36m[*]\033[0m %s\n' "$*"; }
@@ -35,7 +61,7 @@ ok(){  printf '\033[1;32m[+]\033[0m %s\n' "$*"; }
 warn(){ printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
 die(){ printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 run(){ if [ "$DRYRUN" = 1 ]; then printf '    would run: %s\n' "$*"; else eval "$@"; fi; }
-backup(){ [ -e "$1" ] || return 0; local d=/root/${PREFIX}-/configs-backup; mkdir -p "$d"; [ -e "$d/$(basename "$1").orig" ] || cp -a "$1" "$d/$(basename "$1").orig"; }
+backup(){ [ -e "$1" ] || return 0; local d=$CORPUS/configs-backup; mkdir -p "$d"; [ -e "$d/$(basename "$1").orig" ] || cp -a "$1" "$d/$(basename "$1").orig"; }
 want(){ # module gate: honor --only / --skip
   local m="$1"
   if [ -n "$ONLY" ]; then [[ ",$ONLY," == *",$m,"* ]] || return 1; fi
@@ -49,10 +75,50 @@ for a in "$@"; do case "$a" in
   --enable-tor-transparent) ENABLE_TOR=1; ENABLE_TOR_TRANSPARENT=1;;
   --dry-run) DRYRUN=1;;
   --allow-no-tpm) ALLOW_NO_TPM=1;;
+  --profile=*) PROFILE="${a#*=}";;
+  --syslog=*) SYSLOG_SERVER="${a#*=}";;
+  --no-syslog) SYSLOG_SERVER="none";;
+  --mdns) ENABLE_MDNS=1;;  --no-mdns) ENABLE_MDNS=0;;
+  --reboot-days=*) REBOOT_DAYS="${a#*=}";;
+  --non-interactive) NONINTERACTIVE=1;;
   --skip) shift;;  --skip=*) SKIP="${a#*=}";;
   --only=*) ONLY="${a#*=}";;
   -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
 esac; done
+
+# ----------------------------------------------------------------------------- deployment choices
+ask(){ # ask VAR "prompt" "default"  — non-interactive falls back to the default
+  local __v="$1" __p="$2" __d="$3" __r=""
+  if [ "$NONINTERACTIVE" = 1 ] || [ ! -t 0 ]; then printf -v "$__v" '%s' "$__d"; return 0; fi
+  printf '\033[1;36m[?]\033[0m %s [%s]: ' "$__p" "$__d" >&2; read -r __r || true
+  printf -v "$__v" '%s' "${__r:-$__d}"
+}
+
+configure(){
+  say "deployment choices (flags/env override; --non-interactive accepts defaults)"
+
+  if [ -z "$PROFILE" ]; then
+    ask PROFILE "Profile — 'server' disables user namespaces, 'desktop' keeps them for browser/flatpak sandboxes" "desktop"
+  fi
+  case "$PROFILE" in server|desktop) ;; *) die "--profile must be 'server' or 'desktop' (got '$PROFILE')";; esac
+
+  if [ -z "$SYSLOG_SERVER" ]; then
+    warn "The local audit trail lives on the host it audits — root here can rewrite it."
+    warn "Off-box log shipping is what makes the trail evidence. Enter a syslog server, or 'none'."
+    ask SYSLOG_SERVER "Remote syslog server (host[:port], or 'none')" "none"
+  fi
+
+  if [ -z "$ENABLE_MDNS" ]; then
+    ask _m "Allow inbound mDNS/5353 for local discovery? (y/N)" "n"
+    case "$_m" in [Yy]*) ENABLE_MDNS=1;; *) ENABLE_MDNS=0;; esac
+  fi
+
+  ask REBOOT_DAYS "Monthly reboot days (firmware/microcode activation; twice monthly minimum)" "$REBOOT_DAYS"
+
+  ok "profile=$PROFILE syslog=${SYSLOG_SERVER:-none} mdns=$ENABLE_MDNS reboot-days=$REBOOT_DAYS"
+  [ "$SYSLOG_SERVER" = "none" ] && warn "No remote logging: record this as a deviation from C6.5 in $CORPUS/DEVIATIONS.md"
+  return 0
+}
 
 # ----------------------------------------------------------------------------- preflight
 [ "$(id -u)" -eq 0 ] || die "must run as root"
@@ -181,6 +247,12 @@ kernel.unprivileged_bpf_disabled = 1
 net.core.bpf_jit_harden = 2
 kernel.perf_event_paranoid = 3
 EOF
+  if [ "$PROFILE" = server ]; then
+    echo 'user.max_user_namespaces = 0' >> /etc/sysctl.d/90-${PREFIX}-kernel-hardening.conf
+    say "  profile=server: user namespaces disabled"
+  else
+    say "  profile=desktop: user namespaces left enabled (browser/flatpak sandboxes)"
+  fi
   run "sysctl --system >/dev/null" && ok "kernel sysctl applied"
 }
 
@@ -246,13 +318,15 @@ EOF
   else warn "faillock.conf written but pam_faillock not detected in PAM — verify the auth stack"; fi
 }
 
-mod_firewall(){ want firewall || return 0; say "firewall: inbound ssh+mdns only; egress block plaintext 80/53"
+mod_firewall(){ want firewall || return 0
+  local _keep="ssh"; [ "$ENABLE_MDNS" = 1 ] && _keep="ssh mdns"
+  say "firewall: inbound ${_keep// /+} only; egress block plaintext 80/53"
   if [ "$HAVE_FIREWALLD" = 1 ]; then
     local z; z="$(firewall-cmd --get-default-zone)"
     for s in $(firewall-cmd --zone="$z" --list-services); do
-      case "$s" in ssh|mdns) ;; *) run "firewall-cmd --permanent --zone=$z --remove-service=$s" ;; esac; done
+      case " $_keep " in *" $s "*) ;; *) run "firewall-cmd --permanent --zone=$z --remove-service=$s" ;; esac; done
     run "firewall-cmd --permanent --zone=$z --add-service=ssh"
-    run "firewall-cmd --permanent --zone=$z --add-service=mdns"
+    [ "$ENABLE_MDNS" = 1 ] && run "firewall-cmd --permanent --zone=$z --add-service=mdns"
     run "firewall-cmd --permanent --set-log-denied=all"
     local d="firewall-cmd --permanent --direct --add-rule"
     run "$d ipv4 filter OUTPUT 0 -o lo -j ACCEPT"; run "$d ipv6 filter OUTPUT 0 -o lo -j ACCEPT"
@@ -264,7 +338,7 @@ mod_firewall(){ want firewall || return 0; say "firewall: inbound ssh+mdns only;
     run "$d ipv6 filter OUTPUT 1 -p tcp --dport 53 -j REJECT --reject-with tcp-reset"
     run "firewall-cmd --reload"
   else
-    warn "firewalld not active — provide an nftables ruleset for this host (inbound ssh+mdns, egress reject 80/53, loopback exempt)"
+    warn "firewalld not active — provide an nftables ruleset for this host (inbound ${_keep// /+}, egress reject 80/53, loopback exempt)"
   fi
   ok "firewall configured"
 }
@@ -327,7 +401,7 @@ mod_gwpin(){ want gwpin || return 0; [ "$HAVE_NM" = 1 ] || { warn "no NetworkMan
 #!/bin/bash
 # Trust-on-first-connect: pin the default gateway IP->MAC as a PERMANENT neigh entry so a
 # spoofed ARP reply cannot redirect gateway traffic. Logs pins/alerts to the journal.
-IFACE="\$1"; ACTION="\$2"; LOG=/root/${PREFIX}-/audit/gateway-pins.log
+IFACE="\$1"; ACTION="\$2"; LOG=$CORPUS/audit/gateway-pins.log
 case "\$ACTION" in up|dhcp4-change|dhcp6-change|connectivity-change)
   GW=\$(ip route show default dev "\$IFACE" 2>/dev/null | awk '/default/{print \$3; exit}'); [ -z "\$GW" ] && exit 0
   ping -c1 -W1 "\$GW" >/dev/null 2>&1 || true
@@ -410,7 +484,7 @@ EOF
 }
 
 mod_automation(){ want automation || return 0; say "maintenance automation + durable local audit trail"
-  local B=/root/${PREFIX}-/audit
+  local B=$CORPUS/audit
   local UPCMD
   case "$PM" in
     dnf)     UPCMD='dnf -y upgrade --refresh' ;;
@@ -446,21 +520,23 @@ EOF
   cat > /usr/local/sbin/${PREFIX}-log-export <<EOF
 #!/bin/bash
 # Dated export of the audit trail + recent journal into /root; 30-day retention.
-E=/root/${PREFIX}-/audit/exports; mkdir -p "\$E"; TS=\$(date -u +%Y%m%d)
+E=$CORPUS/audit/exports; mkdir -p "\$E"; TS=\$(date -u +%Y%m%d)
 journalctl --since "30 days ago" > /tmp/${PREFIX}-journal.txt 2>/dev/null || true
-tar czf "\$E/logs-\$TS.tar.gz" -C /root/${PREFIX}-/audit daily 2>/dev/null /tmp/${PREFIX}-journal.txt 2>/dev/null || true
+tar czf "\$E/logs-\$TS.tar.gz" -C $CORPUS/audit daily 2>/dev/null /tmp/${PREFIX}-journal.txt 2>/dev/null || true
 rm -f /tmp/${PREFIX}-journal.txt
 find "\$E" -name 'logs-*.tar.gz' -mtime +30 -delete 2>/dev/null || true
 EOF
   chmod 0755 /usr/local/sbin/${PREFIX}-{update,reboot,audit,log-export}
   cat > /etc/cron.d/${PREFIX}-maintenance <<EOF
-# Daily: audit, export, update, reboot (local time).
+# Daily: audit, export, update (local time).
+# Reboot on days ${REBOOT_DAYS} — twice monthly minimum, so firmware/microcode
+# updates staged by the daily upgrade actually activate. Adjust per deployment.
 SHELL=/bin/bash
 PATH=/usr/sbin:/usr/bin
 15 3 * * * root /usr/local/sbin/${PREFIX}-audit scheduled
 45 3 * * * root /usr/local/sbin/${PREFIX}-log-export
 0  4 * * * root /usr/local/sbin/${PREFIX}-update
-30 4 * * * root /usr/local/sbin/${PREFIX}-reboot
+30 4 ${REBOOT_DAYS} * * root /usr/local/sbin/${PREFIX}-reboot
 EOF
   cat > /etc/systemd/system/${PREFIX}-audit-boot.service <<EOF
 [Unit]
@@ -474,6 +550,47 @@ WantedBy=multi-user.target
 EOF
   run "systemctl daemon-reload"; run "systemctl enable ${PREFIX}-audit-boot.service"
   ok "automation + audit trail installed"
+}
+
+mod_logging(){ want logging || return 0
+  if [ -z "$SYSLOG_SERVER" ] || [ "$SYSLOG_SERVER" = none ]; then
+    warn "no remote log server configured — the audit trail stays on the host it audits"
+    warn "record this as a deviation from C6.5 in $CORPUS/DEVIATIONS.md"
+    return 0
+  fi
+  say "remote log shipping -> $SYSLOG_SERVER"
+  local host="${SYSLOG_SERVER%%:*}" port="${SYSLOG_SERVER##*:}"
+  [ "$port" = "$SYSLOG_SERVER" ] && port=6514
+  pkg_install rsyslog rsyslog-gnutls || warn "install rsyslog+TLS support manually"
+  backup /etc/rsyslog.d/90-${PREFIX}-remote.conf
+  cat > /etc/rsyslog.d/90-${PREFIX}-remote.conf <<EOF
+# Ship everything off-box over TLS. The local trail complements this; it does not
+# replace it — root on this host can rewrite local logs, not already-shipped ones.
+\$DefaultNetstreamDriver gtls
+\$DefaultNetstreamDriverCAFile /etc/pki/tls/certs/ca-bundle.crt
+\$ActionSendStreamDriverMode 1
+\$ActionSendStreamDriverAuthMode x509/name
+\$ActionQueueType LinkedList
+\$ActionQueueFileName ${PREFIX}_fwd
+\$ActionQueueMaxDiskSpace 1g
+\$ActionQueueSaveOnShutdown on
+\$ActionResumeRetryCount -1
+*.* @@${host}:${port}
+EOF
+  run "systemctl enable --now rsyslog" && ok "logs shipping to ${host}:${port} over TLS"
+}
+
+mod_tmp_check(){ want tmp_check || return 0
+  local missing=""
+  findmnt -n /tmp     >/dev/null 2>&1 || missing="/tmp"
+  findmnt -n /var/tmp >/dev/null 2>&1 || missing="$missing /var/tmp"
+  if [ -n "$missing" ]; then
+    warn "PRE-INSTALL REQUIREMENT NOT MET:$missing not separate mount(s) with nodev,nosuid,noexec (C4.6)."
+    warn "  This is a partitioning decision made at OS install time — it cannot be added safely here."
+    warn "  Record as a deviation, or apply at the next rebuild/image build."
+  else
+    ok "/tmp and /var/tmp are separate mounts"
+  fi
 }
 
 mod_aide(){ want aide || return 0; say "AIDE file-integrity database"
@@ -593,10 +710,14 @@ EOF
 }
 
 # ============================================================================= RUN
+configure
+install -d -m 0700 "$CORPUS"/{audit/baseline,audit/daily,configs-backup,exports}
 say "=== applying hardening baseline ==="
+mod_tmp_check
 mod_ssh; mod_crypto; mod_sysctl_net; mod_sysctl_kernel; mod_modprobe; mod_coredumps
 mod_login; mod_faillock; mod_firewall; mod_dns; mod_intrusion; mod_gwpin
-mod_pam_ssh_key; mod_sudo; mod_automation; mod_audit; mod_aide; mod_tor
+mod_pam_ssh_key; mod_sudo; mod_automation; mod_logging; mod_audit; mod_aide; mod_tor
 ok "=== baseline applied. Reboot to fully activate crypto policy + boot-time controls. ==="
+echo "Host corpus: $CORPUS (root-owned 0700). Record every deviation there, keyed to control ID."
 echo "Recovery invariants preserved: physical console, disk-encryption passphrase keyslot,"
 echo "existing SSH key, and SELinux/MAC enforcing. Verify before relying on remote-only access."
