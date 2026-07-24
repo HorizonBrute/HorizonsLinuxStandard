@@ -1,0 +1,216 @@
+# =============================================================================
+# SECURITY — secrets, keys, credentials
+# =============================================================================
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.template
+*.env.local
+*.env.production
+*.env.staging
+*.env.development
+*.env.test
+
+# Certificates & cryptographic material
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.csr
+*.jks
+*.keystore
+*.asc
+*.gpg
+*.pgp
+
+# SSH keys & config
+id_rsa
+id_ed25519
+id_ecdsa
+id_dsa
+authorized_keys
+known_hosts
+.ssh/
+
+# Generic secret/credential directories
+secrets/
+secrets.*
+secret.*
+credentials
+credentials.*
+.credentials/
+.secrets/
+
+# Cloud provider credentials
+service_account*.json
+*_service_account.json
+*serviceaccount*.json
+gcp-key*.json
+aws-credentials
+.aws/
+.gcp/
+.azure/
+firebase_credentials.json
+.firebase/
+
+# Token & auth files
+*.token
+*.tokens
+*.jwt
+*.refresh_token
+auth.json
+.vault-token
+.github_token
+.slack_token
+oauth_token
+oauth2_token
+.oauth/
+
+# Named config files that regularly contain credentials
+config/local.json
+config/secrets.json
+config/local.*
+config/production.*
+local.settings.json
+
+# Password-pattern filename globbing
+*apikey*
+*api_key*
+*access_token*
+*private_key*
+*secret_key*
+*client_secret*
+*password*
+*passwd*
+*.vault
+*-secret.json
+*-credentials.json
+*-key.json
+*secrets*.json
+*secrets*.yml
+*secrets*.yaml
+*credentials*.json
+*credentials*.yml
+
+# Package manager auth tokens
+.npmrc
+.yarnrc
+.pypirc
+.gem/credentials
+.pip/pip.conf
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+
+# Shell history (may contain secrets typed inline)
+.bash_history
+.zsh_history
+.fish_history
+.history
+
+# =============================================================================
+# LOCAL TOOLING — machine-specific, never committed
+# =============================================================================
+.claude/
+*.local.json
+
+# =============================================================================
+# PYTHON
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+.venv
+venv/
+env/
+ENV/
+.env.bak
+venv.bak/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+cython_debug/
+
+# =============================================================================
+# MKDOCS
+# =============================================================================
+site/
+
+# =============================================================================
+# OS / EDITORS
+# =============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encdata
+ehthumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# VS Code
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+.history/
+
+# JetBrains
+.idea/
+
+# Vim / Emacs
+*~
+*.swp
+*.swo
+
+# Logs & temp
+logs/
+*.log
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
